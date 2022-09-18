@@ -1,0 +1,318 @@
+[
+	{
+		"inputs": [],
+		"stateMutability": "nonpayable",
+		"type": "constructor"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "eoa",
+				"type": "address"
+			}
+		],
+		"name": "addInitEOA",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "",
+				"type": "bool"
+			}
+		],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "validator",
+				"type": "address"
+			},
+			{
+				"internalType": "address",
+				"name": "payee",
+				"type": "address"
+			}
+		],
+		"name": "addValidator",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "",
+				"type": "bool"
+			}
+		],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "fee",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "base",
+				"type": "uint256"
+			}
+		],
+		"name": "changeFee",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "amount",
+				"type": "uint256"
+			}
+		],
+		"name": "collectFees",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "amount",
+				"type": "uint256"
+			},
+			{
+				"internalType": "address",
+				"name": "recipient",
+				"type": "address"
+			}
+		],
+		"name": "emergencyMaticWithdraw",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "_tokenAddress",
+				"type": "address"
+			}
+		],
+		"name": "emergencyTokenWithdraw",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "n",
+				"type": "uint256"
+			}
+		],
+		"name": "getLastNOppTxHashes",
+		"outputs": [
+			{
+				"internalType": "bytes32[]",
+				"name": "hashSlice",
+				"type": "bytes32[]"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "_blockNumber",
+				"type": "uint256"
+			}
+		],
+		"name": "getOppTxHashesFromBlock",
+		"outputs": [
+			{
+				"internalType": "bytes32[]",
+				"name": "oppTxHashes",
+				"type": "bytes32[]"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "bytes32",
+				"name": "oppTxHash",
+				"type": "bytes32"
+			}
+		],
+		"name": "getSearcherBidFromOpportunityHash",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "",
+				"type": "bool"
+			},
+			{
+				"internalType": "bool",
+				"name": "",
+				"type": "bool"
+			},
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint64",
+				"name": "",
+				"type": "uint64"
+			},
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			},
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "bytes32",
+				"name": "oppTxHash",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "address",
+				"name": "validator",
+				"type": "address"
+			},
+			{
+				"internalType": "address",
+				"name": "searcherToAddress",
+				"type": "address"
+			},
+			{
+				"internalType": "address",
+				"name": "searcherEOA",
+				"type": "address"
+			},
+			{
+				"internalType": "uint256",
+				"name": "gasPrice",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "bidAmountRaw",
+				"type": "uint256"
+			}
+		],
+		"name": "initBid",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "owner",
+		"outputs": [
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "amount",
+				"type": "uint256"
+			},
+			{
+				"internalType": "address",
+				"name": "validator",
+				"type": "address"
+			}
+		],
+		"name": "payValidator",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "bytes32",
+				"name": "oppTxHash",
+				"type": "bytes32"
+			}
+		],
+		"name": "refundBid",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "validator",
+				"type": "address"
+			}
+		],
+		"name": "removeValidator",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "",
+				"type": "bool"
+			}
+		],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "bytes32",
+				"name": "oppTxHash",
+				"type": "bytes32"
+			},
+			{
+				"internalType": "address",
+				"name": "validator",
+				"type": "address"
+			},
+			{
+				"internalType": "address",
+				"name": "searcherToAddress",
+				"type": "address"
+			}
+		],
+		"name": "submitBid",
+		"outputs": [],
+		"stateMutability": "payable",
+		"type": "function"
+	}
+]
