@@ -8,43 +8,48 @@ interface IERC20 {
     function transfer(address recipient, uint256 amount) external returns (bool);  // maybe use safetransfer? idk
 }
 
-struct BidData {
-    uint256 bidAmount;
-    uint256 pflFee;
-    bytes32 oppTxHash;
-    address searcherToAddress;
-    address searcherEOA;
-    uint64 blockNumber;
-    address validator;
-    address initEOA;
-    uint256 gasPrice;
-    bool initialized;
-    bool filled;
-    bool refunded;
-}
-
-struct ValidatorData {
-    bool initialized;
-    bool participating;
-    uint256 balance;
-    uint256 balancePaid;
-    uint64 lastBlockPaid;
-    address payee;
-}
-
-
-struct PFLFeeCollector {
-    uint256 collected;
-    uint256 uncollected;
-    uint256 gross;
-    uint256 refunded;
-    uint256 fee;
-    uint256 base;
-    uint256 validatorPayable;
-    uint256 pflPayable;
-}
-
 contract FastlaneJITAuction {
+
+    struct BidData {
+        uint256 bidAmount;
+        uint256 pflFee;
+        bytes32 oppTxHash;
+        address searcherToAddress;
+        address searcherEOA;
+        uint64 blockNumber;
+        address validator;
+        address initEOA;
+        uint256 gasPrice;
+        bool initialized;
+        bool filled;
+        bool refunded;
+    }
+
+    struct ValidatorData {
+        bool initialized;
+        bool participating;
+        uint256 balance;
+        uint256 balancePaid;
+        uint64 lastBlockPaid;
+        address payee;
+    }
+
+    struct PFLFeeCollector {
+        uint256 collected;
+        uint256 uncollected;
+        uint256 gross;
+        uint256 refunded;
+        uint256 fee;
+        uint256 base;
+        uint256 validatorPayable;
+        uint256 pflPayable;
+    }
+
+    event NewAuction(
+        bytes32 indexed oppTxHash,
+        address indexed winningSearcherContract,
+        address indexed validator
+    );
 
     address public immutable owner;
     
@@ -138,6 +143,8 @@ contract FastlaneJITAuction {
             auctionArrayIndex = 0;
             auctionOppHashes[auctionArrayIndex] = oppTxHash;
         }
+
+        emit NewAuction(oppTxHash, searcherToAddress, validator);
     }
 
     function submitBid(
@@ -151,6 +158,7 @@ contract FastlaneJITAuction {
         BidData memory bidData = bidMap[oppTxHash];
 
         // safety checks to make sure this bid is the initialized bid
+        require(bidData.searcherEOA == msg.sender, 'err - searcher EOA was not winner of auction');
         require(validator == block.coinbase, 'err - incorrect validator');
         require(validatorMap[validator].participating, 'err - nonparticipating validator');
         require(bidData.validator == validator, 'err - validator does not match init tx validator');
@@ -158,7 +166,6 @@ contract FastlaneJITAuction {
         require(bidData.blockNumber == blockNumber, 'err - init and searcher bid landed in separate blocks');
         require(bidData.initialized && !bidData.filled, 'err - oppTx already auctioned');
         require(tx.gasprice == bidData.gasPrice, 'err - wrong gasPrice in transaction parameters');
-        require(bidData.searcherEOA == msg.sender, 'err - searcherEOA mismatch between initBid and submitBid');
         require(bidData.searcherToAddress == searcherToAddress, 'err - searcherToAddress mismatch between initBid and submitBid');
         // require(msg.value > tx.gasprice * initBidGasUsed, 'err - msg value is smaller than initBid gas cost');
         // removed for expanded alpha test
@@ -313,8 +320,10 @@ contract FastlaneJITAuction {
     function getLastNAuctionTxHashes(uint256 n) public view 
     returns (bytes32[] memory hashSlice) {
         // note: goes without saying but don't run this on chain - it's a gas destroyer
+        hashSlice = new bytes32[](n);
         uint256 q = 0;
         bytes32 _hash;
+
         for (uint256 z=1; z <= n; z++) {
             // note: current index is not initializd - last initialized index is current - 1
             if (auctionArrayIndex - z >= 0) {
@@ -338,8 +347,10 @@ contract FastlaneJITAuction {
     function getLastNRefundTxHashes(uint256 n) public view 
     returns (bytes32[] memory hashSlice) {
         // note: goes without saying but don't run this on chain - it's a gas destroyer
+        hashSlice = new bytes32[](n);
         uint256 q = 0;
         bytes32 _hash;
+
         for (uint256 z=1; z <= n; z++) {
             // note: current index is not initializd - last initialized index is current - 1
             if (refundArrayIndex - z >= 0) {
