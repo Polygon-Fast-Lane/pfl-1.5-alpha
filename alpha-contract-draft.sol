@@ -106,7 +106,7 @@ contract FastlaneJITAuction {
         address validator, 
         address searcherToAddress, 
         address searcherEOA, 
-        uint256 gasPrice, 
+        uint256 gasPriceArg, // this is the priority fee (GasTipCap) for type 2 tx, and gasPrice for legacy tx
         uint256 bidAmountRaw
     ) public {
         // PFL EOAs will submit a tx that will initialize receipt of the winning bid
@@ -124,6 +124,9 @@ contract FastlaneJITAuction {
         // uint256 _bidAmount = msg.value - (tx.gasprice * initBidGasUsed);
         // disabled for alpha test
 
+        uint256 gasPriceActual = tx.gasprice;
+        require(gasPriceActual +  block.basefee  >= gasPriceArg, 'err - impossible gas price match');
+
         // handle protocol fee math
         uint256 _pflFee = bidAmountRaw * feeCollector.fee / feeCollector.base;
 
@@ -133,7 +136,7 @@ contract FastlaneJITAuction {
         uint256 _bidAmount = bidAmountRaw - _pflFee;
         
         // initialize the bidMap
-        bidMap[oppTxHash] = BidData(_bidAmount, _pflFee, oppTxHash, searcherToAddress, searcherEOA, uint64(block.number), validator, msg.sender, gasPrice, true, false, false);
+        bidMap[oppTxHash] = BidData(_bidAmount, _pflFee, oppTxHash, searcherToAddress, searcherEOA, uint64(block.number), validator, msg.sender, gasPriceActual, true, false, false);
         
         // update the auction hash array
         totalAuctionCount++;
