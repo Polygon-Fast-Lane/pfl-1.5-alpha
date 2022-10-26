@@ -16,6 +16,7 @@ PFL_DATA_FOLDER = "pfl_data"
 
 SEARCHER_EOA_ADDRESS = ''
 SEARCHER_EOA_PK = ''
+SEARCHER_CONTRACT_ADDRESS = Web3.toChecksumAddress('')
 
 pfl_alpha_relay_address = ''
 pfl_alpha_api_username = ''
@@ -23,7 +24,7 @@ pfl_alpha_api_key = ''
 pfl_contract_address = Web3.toChecksumAddress('')
 
 pfl_participating_validators = set([
-    Web3.toChecksumAddress(''),
+    Web3.toChecksumAddress('0x127685D6dD6683085Da4B6a041eFcef1681E5C9C'),
 ])
 
 PFLSession = requests.Session()
@@ -31,13 +32,21 @@ PFLSession.auth = (pfl_alpha_api_username, pfl_alpha_api_key)
 
 with open(f"{PFL_DATA_FOLDER}/pfl_jit_auction_abi.json") as x:
     fast_lane_ABI = json.load(x)
-pfl_contract = web3.eth.contract(address=pfl_contract_address, abi=fast_lane_ABI)    
+pfl_contract = web3.eth.contract(address=pfl_contract_address, abi=fast_lane_ABI)   
+
+with open("searcher_contract_abi.json") as y:
+    searcher_ABI = json.load(y)
+searcher_contract = web3.eth.contract(address=SEARCHER_CONTRACT_ADDRESS, abi=searcher_ABI) 
+
 
 class SearcherEOA:
     def __init__(self, searcherEOAAddress, searcherEOAPrivateKey):
         self.address = Web3.toChecksumAddress(searcherEOAAddress) # address of EOA
         self.privateKey = searcherEOAPrivateKey # private key of EOA
         self.nonce = int(web3.eth.get_transaction_count(searcherEOAAddress)) # nonce of EOA
+
+    def update_nonce(self):
+        self.nonce = int(web3.eth.get_transaction_count(self.address))
 
 class OpportunityTx:
     def __init__(self, tx, txDict):
@@ -66,8 +75,11 @@ def get_current_validator():
     print("validator:", validator)
     return validator
 
-def build_searcher_transaction(searcherEOA, opportunityTx, validator):
-    # a placeholder
+def build_searcher_transaction(
+        searcherEOA: SearcherEOA, 
+        opportunityTx: OpportunityTx, 
+        validator: str):
+
     if opportunityTx.type == 0:
         searcherTxDict = {
             'from': searcherEOA.address,
