@@ -53,10 +53,6 @@ abstract contract FastLaneRelayEvents {
 
 contract FastLaneRelay is FastLaneRelayEvents, Ownable, ReentrancyGuard {
 
-    uint256 internal immutable INITIAL_CHAIN_ID;
-
-    bytes32 internal immutable INITIAL_DOMAIN_SEPARATOR;
-
     uint24 internal currentRoundNumber;
     uint24 internal lastRoundProcessed;
     uint24 public fastlaneStakeShare;
@@ -65,6 +61,8 @@ contract FastLaneRelay is FastLaneRelayEvents, Ownable, ReentrancyGuard {
 
     bool public paused = false;
     bool internal isProcessingPayments = false;
+
+    bytes4 public FastLaneCallSelector = bytes4(keccak256(bytes('FastLaneCall')));
 
     mapping(address => bool) internal validatorsMap;
     mapping(uint24 => mapping(address => uint256)) internal validatorBalanceMap; // map[round][validator] = balance
@@ -78,13 +76,8 @@ contract FastLaneRelay is FastLaneRelayEvents, Ownable, ReentrancyGuard {
 
     constructor() {
         if (address(this) == address(0)) revert RelayWrongInit();
-        
-        INITIAL_CHAIN_ID = block.chainid;
-        INITIAL_DOMAIN_SEPARATOR = computeDomainSeparator();
 
-        uint24 _share = 5_000;
-        
-        setFastlaneStakeShare(_share);
+        setFastlaneStakeShare(uint24(5_000));
 
         currentRoundNumber = uint24(1);
         roundDataMap[currentRoundNumber] = Round(currentRoundNumber, fastlaneStakeShare, uint64(block.number), 0, 0, false);
@@ -120,9 +113,16 @@ contract FastLaneRelay is FastLaneRelayEvents, Ownable, ReentrancyGuard {
 
             if (_searcherToAddress == address(0) || _bidAmount == 0) revert RelaySearcherWrongParams();
             
-            uint256 balanceBefore = address(this).balance;
+            uint256 balanceBefore = address(this).balance - msg.value;
 
-            (bool success, bytes memory retData) = _searcherToAddress.call{value: msg.value}(abi.encodePacked(_toForwardExecData, msg.sender));
+            (bool success, bytes memory retData) = _searcherToAddress.call{value: msg.value}(
+                abi.encodePacked(
+                    FastLaneCallSelector, 
+                    _toForwardExecData, 
+                    msg.sender
+                )
+            );
+            
             if (!success) revert RelaySearcherCallFailure(retData);
 
             uint256 expected = balanceBefore + _bidAmount;
@@ -161,23 +161,6 @@ contract FastLaneRelay is FastLaneRelayEvents, Ownable, ReentrancyGuard {
     function _calculateStakeShare(uint256 _amount, uint24 _share) internal pure returns (uint256 validatorCut, uint256 stakeCut) {
         validatorCut = (_amount * (1000000 - _share)) / 1000000;
         stakeCut = _amount - validatorCut;
-    }
-
-    function DOMAIN_SEPARATOR() public view virtual returns (bytes32) {
-        return block.chainid == INITIAL_CHAIN_ID ? INITIAL_DOMAIN_SEPARATOR : computeDomainSeparator();
-    }
-
-    function computeDomainSeparator() internal view virtual returns (bytes32) {
-        return
-            keccak256(
-                abi.encode(
-                    keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-                    keccak256(bytes("FastLaneRelay")),
-                    keccak256("1"),
-                    block.chainid,
-                    address(this)
-                )
-            );
     }
 
     /***********************************|
