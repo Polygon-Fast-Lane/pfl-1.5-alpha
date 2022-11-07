@@ -122,7 +122,7 @@ contract FastLaneRelay is FastLaneRelayEvents, Ownable, ReentrancyGuard {
                     msg.sender
                 )
             );
-            
+
             if (!success) revert RelaySearcherCallFailure(retData);
 
             uint256 expected = balanceBefore + _bidAmount;
@@ -303,24 +303,27 @@ contract FastLaneRelay is FastLaneRelayEvents, Ownable, ReentrancyGuard {
     function enableRelayValidatorAddress(address _validator) external onlyOwner {
         if (!validatorsMap[_validator]) {
             // check to see if this validator is being re-added
-            bool existing = false;
-            uint256 validatorIndex;
-            address lastElement = removedValidators[removedValidators.length - 1];
-            for (uint256 z=0; z < removedValidators.length; z++) {
-                if (removedValidators[z] == _validator) {
-                    validatorIndex = z;
-                    existing = true;
-                    break;
+            if (removedValidators.length > 0) {
+                bool existing = false;
+                uint256 validatorIndex;
+                address lastElement = removedValidators[removedValidators.length - 1];
+                
+                for (uint256 z=0; z < removedValidators.length; z++) {
+                    if (removedValidators[z] == _validator) {
+                        validatorIndex = z;
+                        existing = true;
+                        break;
+                    }
+                }
+                if (existing) {
+                    removedValidators[validatorIndex] = lastElement;
+                    delete removedValidators[removedValidators.length - 1];
                 }
             }
-            if (existing) {
-                removedValidators[validatorIndex] = lastElement;
-                delete removedValidators[removedValidators.length - 1];
-            }
             participatingValidators.push(_validator);
+            validatorsMap[_validator] = true;
+            emit RelayValidatorEnabled(_validator);
         }
-        validatorsMap[_validator] = true;
-        emit RelayValidatorEnabled(_validator);
     }
 
     function disableRelayValidatorAddress(address _validator) external onlyOwner {
@@ -340,9 +343,10 @@ contract FastLaneRelay is FastLaneRelayEvents, Ownable, ReentrancyGuard {
                 delete participatingValidators[participatingValidators.length - 1];
             }
             removedValidators.push(_validator);
+            validatorsMap[_validator] = false;
+            emit RelayValidatorDisabled(_validator);
         }
-        validatorsMap[_validator] = false;
-        emit RelayValidatorDisabled(_validator);
+        
     }
 
     /***********************************|
