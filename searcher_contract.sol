@@ -41,7 +41,7 @@ contract FastLaneSearcherWrapper is ReentrancyGuard {
 
         // balance check then Repay PFL at the end
         require(
-            (address(this).balance < _bidAmount), 
+            (address(this).balance >= _bidAmount), 
             string(abi.encodePacked("SearcherInsufficientFunds  ", Strings.toString(_bidAmount), Strings.toString(address(this).balance)))
         );
         safeTransferETH(PFLAuction, _bidAmount);
