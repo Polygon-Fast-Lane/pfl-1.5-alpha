@@ -1,6 +1,11 @@
 [
 	{
 		"inputs": [],
+		"stateMutability": "nonpayable",
+		"type": "constructor"
+	},
+	{
+		"inputs": [],
 		"name": "AuctionBidReceivedLate",
 		"type": "error"
 	},
@@ -95,7 +100,7 @@
 	},
 	{
 		"inputs": [],
-		"name": "RelayPermissionNotFastlaneValidator",
+		"name": "RelayPermissionNotFastLaneValidator",
 		"type": "error"
 	},
 	{
@@ -305,32 +310,6 @@
 		"inputs": [
 			{
 				"internalType": "address",
-				"name": "_searcherEOA",
-				"type": "address"
-			}
-		],
-		"name": "authorizeSearcherEOA",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "_searcherEOA",
-				"type": "address"
-			}
-		],
-		"name": "deauthorizeSearcherEOA",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "address",
 				"name": "_validator",
 				"type": "address"
 			}
@@ -355,9 +334,124 @@
 	},
 	{
 		"inputs": [],
+		"name": "fastLaneStakeShare",
+		"outputs": [
+			{
+				"internalType": "uint24",
+				"name": "",
+				"type": "uint24"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "getCurrentRound",
+		"outputs": [
+			{
+				"internalType": "uint24",
+				"name": "_currentRoundNumber",
+				"type": "uint24"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "getFastLaneStakeShare",
+		"outputs": [
+			{
+				"internalType": "uint24",
+				"name": "_fastLaneStakeShare",
+				"type": "uint24"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "getLastRoundProcessed",
+		"outputs": [
+			{
+				"internalType": "uint24",
+				"name": "_lastRoundProcessed",
+				"type": "uint24"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "getPausedStatus",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "_paused",
+				"type": "bool"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "validator",
+				"type": "address"
+			}
+		],
+		"name": "getValidatorBalance",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
 		"name": "newRound",
 		"outputs": [],
 		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "owner",
+		"outputs": [
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "paused",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "",
+				"type": "bool"
+			}
+		],
+		"stateMutability": "view",
 		"type": "function"
 	},
 	{
@@ -403,11 +497,11 @@
 		"inputs": [
 			{
 				"internalType": "uint24",
-				"name": "_fastlaneStakeShare",
+				"name": "_fastLaneStakeShare",
 				"type": "uint24"
 			}
 		],
-		"name": "setFastlaneStakeShare",
+		"name": "setFastLaneStakeShare",
 		"outputs": [],
 		"stateMutability": "nonpayable",
 		"type": "function"
@@ -444,12 +538,18 @@
 			},
 			{
 				"internalType": "bytes",
-				"name": "_toForwardExecData",
+				"name": "_searcherCallData",
 				"type": "bytes"
 			}
 		],
 		"name": "submitFastLaneBid",
-		"outputs": [],
+		"outputs": [
+			{
+				"internalType": "bytes",
+				"name": "",
+				"type": "bytes"
+			}
+		],
 		"stateMutability": "payable",
 		"type": "function"
 	},
@@ -482,87 +582,6 @@
 		"name": "withdrawStakeShare",
 		"outputs": [],
 		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"stateMutability": "nonpayable",
-		"type": "constructor"
-	},
-	{
-		"inputs": [],
-		"name": "FastLaneCallSelector",
-		"outputs": [
-			{
-				"internalType": "bytes4",
-				"name": "",
-				"type": "bytes4"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "fastlaneStakeShare",
-		"outputs": [
-			{
-				"internalType": "uint24",
-				"name": "",
-				"type": "uint24"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "validator",
-				"type": "address"
-			}
-		],
-		"name": "getValidatorBalance",
-		"outputs": [
-			{
-				"internalType": "uint256",
-				"name": "",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "",
-				"type": "uint256"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "owner",
-		"outputs": [
-			{
-				"internalType": "address",
-				"name": "",
-				"type": "address"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "paused",
-		"outputs": [
-			{
-				"internalType": "bool",
-				"name": "",
-				"type": "bool"
-			}
-		],
-		"stateMutability": "view",
 		"type": "function"
 	}
 ]
