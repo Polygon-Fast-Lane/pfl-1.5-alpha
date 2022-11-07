@@ -37,12 +37,13 @@ contract FastLaneSearcherWrapper is ReentrancyGuard {
         (bool success, bytes memory returnedData) = address(this).call(_searcherCallData);
         
         // if the call didn't turn out the way you wanted, revert either here or inside your MEV function itself
-        if (!success) revert("SearcherCallUnsuccessful");
+        require(success, "SearcherCallUnsuccessful");
 
         // balance check then Repay PFL at the end
-        if (address(this).balance < _bidAmount) {
-            revert(string(abi.encodePacked("SearcherInsufficientFunds  ", Strings.toString(_bidAmount), Strings.toString(address(this).balance))));
-        }
+        require(
+            (address(this).balance < _bidAmount), 
+            string(abi.encodePacked("SearcherInsufficientFunds  ", Strings.toString(_bidAmount), Strings.toString(address(this).balance)))
+        );
         safeTransferETH(PFLAuction, _bidAmount);
         
         // return the return data (optional)
@@ -81,6 +82,9 @@ contract FastLaneSearcherWrapper is ReentrancyGuard {
         return forwarder == PFLAuction;
     }
 
+    fallback() external payable {}
+    receive() external payable {}
+
     modifier onlyRelayer {
           if (!isTrustedForwarder(msg.sender)) revert("InvalidPermissions");
           _;
@@ -92,10 +96,11 @@ contract SearcherContractExample is FastLaneSearcherWrapper {
     // NOTE: its security checks must be compatible w/ calls from the FastLane Auction Contract
     function doStuff(address _anAddress, uint256 _anAmount) public payable returns (bool) {
         // NOTE: this function can't be external as the FastLaneCall func will call it internally
-
-        if (!isTrustedForwarder(msg.sender)) { // example of safety check modification - only check msg.sender when not forwarded
-            if (!approvedEOAs[msg.sender]) revert("SenderEOANotApproved");
+        if (!isTrustedForwarder(msg.sender) && msg.sender != address(this)) { // example of safety check modification - only check msg.sender when not forwarded
+            // NOTE: msg.sender becomes address(this) if using call from inside contract per above example
+            require(approvedEOAs[msg.sender], "SenderEOANotApproved");
         }
+        
 
         // Do MEV stuff here
         anAddress = _anAddress;

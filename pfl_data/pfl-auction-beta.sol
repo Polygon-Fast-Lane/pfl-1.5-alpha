@@ -401,6 +401,9 @@ contract FastLaneAuctionRelay is FastLaneRelayEvents, Ownable, ReentrancyGuard {
         require(success, "ETH_TRANSFER_FAILED");
     }
 
+    fallback() external payable {}
+    receive() external payable {}
+
     /***********************************|
     |             Modifiers             |
     |__________________________________*/
