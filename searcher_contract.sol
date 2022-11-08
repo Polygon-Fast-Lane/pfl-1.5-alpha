@@ -22,9 +22,9 @@ contract FastLaneSearcherWrapper is ReentrancyGuard {
 
     // the FastLane Auction contract will call this function
     function fastLaneCall(
-        bytes calldata _searcherCallData, // contains func selector and calldata for your MEV transaction
-        uint256 _bidAmount,
-        address _sender
+            uint256 _bidAmount,
+            address _sender,
+            bytes calldata _searcherCallData // contains func selector and calldata for your MEV transaction
     ) external payable onlyRelayer nonReentrant returns (bool, bytes memory) {
         
         // make sure it's your own EOA that's calling your contract 
@@ -41,7 +41,7 @@ contract FastLaneSearcherWrapper is ReentrancyGuard {
             (address(this).balance >= _bidAmount), 
             string(abi.encodePacked("SearcherInsufficientFunds  ", Strings.toString(_bidAmount), " ", Strings.toString(address(this).balance)))
         );
-        
+
         safeTransferETH(PFLAuction, _bidAmount);
         
         // return the return data (optional)

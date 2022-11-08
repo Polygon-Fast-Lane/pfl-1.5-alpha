@@ -32,7 +32,7 @@ struct ValidatorData {
 }
 
 interface ISearcherContract {
-    function fastLaneCall(bytes calldata, uint256, address) external payable returns (bool, bytes memory);
+    function fastLaneCall(uint256, address, bytes calldata) external payable returns (bool, bytes memory);
 }
 
 abstract contract FastLaneAuctionEvents {
@@ -74,8 +74,9 @@ abstract contract FastLaneAuctionEvents {
 
 contract FastLaneAuction is FastLaneAuctionEvents, Ownable, ReentrancyGuard {
 
-    bytes4 internal constant callSelector = bytes4(keccak256("fastLaneCall(bytes calldata, uint256, address)"));
+    bytes4 internal constant callSelector = bytes4(ISearcherContract.fastLaneCall.selector);
     uint64 internal constant blockTimeLock = 262_144; // approximately 6 days
+    uint24 internal constant FEE_BASE = 1_000_000;
     FastLaneData internal current = FastLaneData(0,0,false,false);
     PendingData internal pending = PendingData(0,0);
 
@@ -104,7 +105,7 @@ contract FastLaneAuction is FastLaneAuctionEvents, Ownable, ReentrancyGuard {
             bytes32 _oppTxHash, // Target TX
             address _searcherToAddress,
             bytes calldata _searcherCallData 
-        ) external payable nonReentrant whenNotPaused onlyParticipatingValidators senderIsOrigin returns (bytes memory) {
+        ) external payable nonReentrant whenNotPaused onlyParticipatingValidators senderIsOrigin {
             
             // make sure another searcher hasn't already won the opp,
             // if so, revert early to save gas
@@ -114,16 +115,18 @@ contract FastLaneAuction is FastLaneAuctionEvents, Ownable, ReentrancyGuard {
             uint256 balanceBefore = address(this).balance - msg.value;
 
             // call the searcher's contract (see searcher_contract.sol for example of call receiver)
-            (bool success, bytes memory returnedData) = _searcherToAddress.call{value: msg.value}(
-                abi.encodeWithSelector(
+            (bool success,) = _searcherToAddress.call{value: msg.value}(
+                bytes.concat(
                     callSelector,
-                    _searcherCallData, 
-                    _bidAmount, 
-                    msg.sender
+                    abi.encode( 
+                        _bidAmount, 
+                        msg.sender,
+                        _searcherCallData
+                    )
                 )
             );
 
-                /* code above is the same as code below but with the addition of passing the msg.value on to searcher
+                /* code above is the same as below snippet but with the addition of passing the msg.value on to searcher's contract
                     (bool success, bytes memory returnedData) = ISearcherContract(_searcherToAddress).fastLaneCall(
                         _searcherCallData, 
                         _bidAmount, 
@@ -138,9 +141,6 @@ contract FastLaneAuction is FastLaneAuctionEvents, Ownable, ReentrancyGuard {
             // verify that the searcher paid the amount they bid & emit the event
             handleBalances(_bidAmount, balanceBefore);
             emit RelayFlashBid(msg.sender, _bidAmount, _oppTxHash, block.coinbase, _searcherToAddress);
-
-            // return the results of the searcher's call
-            return returnedData;
     }
 
     /***********************************|
@@ -173,19 +173,12 @@ contract FastLaneAuction is FastLaneAuctionEvents, Ownable, ReentrancyGuard {
         fulfilledAuctionMap[auction_key] = _bidAmount;
     }
 
-    function forwardTxValue(address _searcherToAddress) internal {
-        if (msg.value > 0) {
-            safeTransferETH(_searcherToAddress, msg.value);
-        }
-    }
-
     function handleBalances(
             uint256 _bidAmount, 
             uint256 balanceBefore
     ) internal {
         // internal accounting helper
-        uint256 expected = balanceBefore + _bidAmount;
-        if (address(this).balance < expected) {
+        if (address(this).balance < balanceBefore + _bidAmount) {
             revert(string(abi.encodePacked("RelayNotRepaid ", Strings.toString(_bidAmount), " ", Strings.toString(address(this).balance - balanceBefore))));
         }
 
@@ -225,10 +218,9 @@ contract FastLaneAuction is FastLaneAuctionEvents, Ownable, ReentrancyGuard {
 
     /// @notice Sets the stake revenue allocation (out of 1_000_000 (ie v2 fee decimals))
     /// @dev Initially set to 50_000 (5%) 
-    /// Can't change the stake revenue allocation mid round - all changes go into effect in next round
     /// @param _fastLaneStakeShare Protocol stake allocation on bids
     function setFastLaneStakeShare(uint24 _fastLaneStakeShare) external onlyOwner {
-        if (_fastLaneStakeShare > 1_000_000) revert("RelayInequalityTooHigh");
+        if (_fastLaneStakeShare > FEE_BASE) revert("RelayInequalityTooHigh");
         pending.stakeShareRatio = _fastLaneStakeShare;
         pending.blockDeadline = uint64(block.number) + blockTimeLock;
         current.pendingUpdate = true;
@@ -318,6 +310,7 @@ contract FastLaneAuction is FastLaneAuctionEvents, Ownable, ReentrancyGuard {
 
     function getValidatorRecipient(address _validator) public view returns (address _recipient) {
         // For validators to determine where their payments will go
+        // Will return the Payee if blockTimeLock has passed, will return Validator if not.
         // TODO: implement this into ValidatorVault front end as an acknowledgement before withdrawals
         _recipient = _validatorPayee(_validator);
     }
@@ -331,23 +324,15 @@ contract FastLaneAuction is FastLaneAuctionEvents, Ownable, ReentrancyGuard {
     }
 
     function getPendingStakeRatio() public view returns (uint24 _fastLaneStakeShare) {
-        if (current.pendingUpdate) {
-            _fastLaneStakeShare = pending.stakeShareRatio;
-        } else {
-            _fastLaneStakeShare = current.stakeShareRatio;
-        }
+        _fastLaneStakeShare = current.pendingUpdate ? pending.stakeShareRatio : current.stakeShareRatio;
     }
 
     function getPendingDeadline() public view returns (uint64 _blockDeadline) {
-        if (current.pendingUpdate) {
-            _blockDeadline = pending.blockDeadline;
-        } else {
-            _blockDeadline = uint64(block.number);
-        }
+        _blockDeadline = current.pendingUpdate ? pending.blockDeadline : uint64(block.number);
     }
 
     function getActiveValidators() public view returns (address[] memory _activeValidators) {
-        // TODO: return size limit?
+        // TODO: size limit?
         _activeValidators = activeValidators;
     }
 
@@ -371,19 +356,16 @@ contract FastLaneAuction is FastLaneAuctionEvents, Ownable, ReentrancyGuard {
     }
 
     function _calculateStakeShare(uint256 _amount, uint24 _share) internal pure returns (uint256 validatorCut, uint256 stakeCut) {
-        validatorCut = (_amount * (1000000 - _share)) / 1000000;
+        validatorCut = (_amount * (FEE_BASE - _share)) / FEE_BASE;
         stakeCut = _amount - validatorCut;
     }
 
     function _stakeShareRatio() internal returns (uint24) {
-        // TODO: more gas efficient version of this?
         if (current.pendingUpdate) {
-            if (current.stakeShareRatio != pending.stakeShareRatio) {
-                if (uint64(block.number) > pending.blockDeadline) {
-                    current.stakeShareRatio = pending.stakeShareRatio;
-                    current.pendingUpdate = false;
-                    emit RelayShareSet(current.stakeShareRatio);
-                }
+            if (uint64(block.number) > pending.blockDeadline) {
+                current.stakeShareRatio = pending.stakeShareRatio;
+                current.pendingUpdate = false;
+                emit RelayShareSet(current.stakeShareRatio);
             }
         }
         return current.stakeShareRatio;
@@ -402,11 +384,7 @@ contract FastLaneAuction is FastLaneAuctionEvents, Ownable, ReentrancyGuard {
     }
 
     function _validatorPayee(address _validator) internal view returns (address _recipient) {
-        if (checkPayeeTimeLock(_validator)) {
-            _recipient = validatorDataMap[_validator].payee;
-        } else {
-            _recipient = _validator;
-        }
+        _recipient = checkPayeeTimeLock(_validator) ? validatorDataMap[_validator].payee : _validator;
     }
 
     fallback() external payable {}
@@ -433,4 +411,3 @@ contract FastLaneAuction is FastLaneAuctionEvents, Ownable, ReentrancyGuard {
         _;
     }
 }
-
