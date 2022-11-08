@@ -5,28 +5,47 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
 
-struct Round {
-    uint24 roundNumber;
-    uint24 stakeAllocation;
-    uint64 startBlock;
-    uint64 endBlock;
-    uint24 nextValidatorIndex;
-    bool completedPayments;
+struct FastLaneData {
+    // current auction parameters
+    uint256 stakeSharePayable;
+    uint24 stakeShareRatio;
+    bool paused;
+    bool pendingUpdate;
+}
+
+struct PendingData {
+    // proposed auction parameters
+    uint24 stakeShareRatio;
+    uint64 blockDeadline;
+}
+
+struct ValidatorData {
+    bool active;
+    uint16 index;
+    address payee;
+    uint64 blockUpdated; 
+    // blockUpdated tracks blockNumber of last update to prevent simultaneous invalid payee updates 
+    // and payouts due to social engineering. Validators can be large organizations and subject
+    // to personnel change, etc.
+
+    // TODO: discuss fee modifier for misbehavior?
 }
 
 interface ISearcherContract {
     function fastLaneCall(bytes calldata, uint256, address) external payable returns (bool, bytes memory);
 }
 
-abstract contract FastLaneRelayEvents {
+abstract contract FastLaneAuctionEvents {
 
     event RelayPausedStateSet(bool state);
     event RelayValidatorEnabled(address validator);
     event RelayValidatorDisabled(address validator);
+    event RelayValidatorPayeeUpdated(address _validator, address _payee);
     event RelayInitialized(address vault);
     event RelayShareSet(uint24 amount);
+    event RelayShareProposed(uint24 amount);
     event RelayFlashBid(address indexed sender, uint256 amount, bytes32 indexed oppTxHash, address indexed validator, address searcherContractAddress);
-    event RelayNewRound(uint24 newRoundNumber);
+
 
     event ProcessingPaidValidator(address validator, uint256 validatorPayment);
     event ProcessingWithdrewStakeShare(address recipient, uint256 amountWithdrawn);
@@ -49,41 +68,34 @@ abstract contract FastLaneRelayEvents {
     error AuctionSearcherNotWinner(uint256 searcherBid, uint256 winningBid);
     error AuctionBidReceivedLate();
 
-    error ProcessingRoundNotOver();
-    error ProcessingRoundFullyPaidOut();
-    error ProcessingInProgress();
     error ProcessingNoBalancePayable();
     error ProcessingAmountExceedsBalance(uint256 amountRequested, uint256 balance);
 }
 
-contract FastLaneAuctionRelay is FastLaneRelayEvents, Ownable, ReentrancyGuard {
+contract FastLaneAuction is FastLaneAuctionEvents, Ownable, ReentrancyGuard {
 
-    uint24 internal currentRoundNumber;
-    uint24 internal lastRoundProcessed;
-    uint24 public fastLaneStakeShare;
-    uint256 internal stakeSharePayable;
-    bool public paused = false;
-    bool internal isProcessingPayments = false;
+    bytes4 internal constant callSelector = bytes4(keccak256("fastLaneCall(bytes calldata, uint256, address)"));
+    uint64 internal constant blockTimeLock = 262_144; // approximately 6 days
+    FastLaneData internal current = FastLaneData(0,0,false,false);
+    PendingData internal pending = PendingData(0,0);
 
-    mapping(address => bool) internal validatorsMap;
-    mapping(uint24 => mapping(address => uint256)) internal validatorBalanceMap; // map[round][validator] = balance
-    mapping(address => uint256) internal validatorBalancePayableMap;
-    mapping(uint24 => Round) internal roundDataMap;
-    mapping(bytes32 => uint256) internal fulfilledAuctionMap;
+    mapping(address => ValidatorData) internal validatorDataMap;
+    mapping(address => uint256) internal validatorBalanceMap; // map[validator] = balance
+    mapping(bytes32 => uint256) internal fulfilledAuctionMap; // map key is keccak hash of opp tx's gasprice and tx hash
 
-    address[] internal participatingValidators;
-    address[] internal removedValidators; 
+    address[] internal activeValidators;
 
     constructor() {
         if (address(this) == address(0)) revert("RelayWrongInit");
 
         setFastLaneStakeShare(uint24(5_000));
 
-        currentRoundNumber = uint24(1);
-        roundDataMap[currentRoundNumber] = Round(currentRoundNumber, fastLaneStakeShare, uint64(block.number), 0, 0, false);
-
         emit RelayInitialized(address(this));
     }
+
+    /***********************************|
+    |  Public Searcher Bid Functions    |
+    |__________________________________*/
 
     function submitFastLaneBid(
             uint256 _bidAmount, // Value commited to be repaid at the end of execution
@@ -96,30 +108,42 @@ contract FastLaneAuctionRelay is FastLaneRelayEvents, Ownable, ReentrancyGuard {
             // if so, revert early to save gas
             checkBid(_oppTxHash, _bidAmount);
 
-            // safely send any msg.value to the searcher's contract
-            forwardTxValue(_searcherToAddress);
-
             // store the current balance, excluding msg.value
-            uint256 balanceBefore = address(this).balance;
+            uint256 balanceBefore = address(this).balance - msg.value;
 
             // call the searcher's contract (see searcher_contract.sol for example of call receiver)
-            (bool success, bytes memory returnedData) = ISearcherContract(_searcherToAddress).fastLaneCall(
-                _searcherCallData, 
-                _bidAmount, 
-                msg.sender
+            (bool success, bytes memory returnedData) = _searcherToAddress.call{value: msg.value}(
+                abi.encodeWithSelector(
+                    callSelector,
+                    _searcherCallData, 
+                    _bidAmount, 
+                    msg.sender
+                )
             );
 
+                /* code above is the same as code below but with the addition of passing the msg.value on to searcher
+                    (bool success, bytes memory returnedData) = ISearcherContract(_searcherToAddress).fastLaneCall(
+                        _searcherCallData, 
+                        _bidAmount, 
+                        msg.sender
+                    );
+                */
+
             // if searcher's call failed, revert 
-            // (can probably remove this line, but I want to leave room for strange error handling on the searcher's end)
+            // (NOTE: can probably remove this line, but I want to leave room for layered error handling on the searcher's end)
             if (!success) revert("RelaySearcherCallFailure");
 
-            // verify that the searcher paid the amount they bid
+            // verify that the searcher paid the amount they bid & emit the event
             handleBalances(_bidAmount, balanceBefore);
             emit RelayFlashBid(msg.sender, _bidAmount, _oppTxHash, block.coinbase, _searcherToAddress);
 
             // return the results of the searcher's call
             return returnedData;
     }
+
+    /***********************************|
+    |    Internal Bid Helper Functions  |
+    |__________________________________*/
 
     function checkBid(bytes32 _oppTxHash, uint256 _bidAmount) internal {
         if (_bidAmount == 0) revert("RelaySearcherWrongParams");
@@ -153,30 +177,25 @@ contract FastLaneAuctionRelay is FastLaneRelayEvents, Ownable, ReentrancyGuard {
         }
     }
 
-    function handleBalances(uint256 _bidAmount, uint256 balanceBefore) internal {
+    function handleBalances(
+            uint256 _bidAmount, 
+            uint256 balanceBefore
+    ) internal {
+        // internal accounting helper
         uint256 expected = balanceBefore + _bidAmount;
-        uint256 balanceAfter = address(this).balance;
-        if (balanceAfter < expected) {
-            revert(string(abi.encodePacked("RelayNotRepaid ", Strings.toString(expected), " ", Strings.toString(balanceAfter))));
+        if (address(this).balance < expected) {
+            revert(string(abi.encodePacked("RelayNotRepaid ", Strings.toString(_bidAmount), " ", Strings.toString(address(this).balance - balanceBefore))));
         }
 
-        validatorBalanceMap[currentRoundNumber][block.coinbase] += _bidAmount;
+        (uint256 amtPayableToValidator, uint256 amtPayableToStakers) = _calculateStakeShare(_bidAmount, _stakeShareRatio());
+
+        validatorBalanceMap[block.coinbase] += amtPayableToValidator;
+        current.stakeSharePayable += amtPayableToStakers;
     }
 
-    /// @notice Internal, calculates cuts
-    /// @dev validatorCut 
-    /// @param _amount Amount to calculates cuts from
-    /// @param _share bps
-    /// @return validatorCut validator cut
-    /// @return stakeCut protocol cut
-    function _calculateStakeShare(uint256 _amount, uint24 _share) internal pure returns (uint256 validatorCut, uint256 stakeCut) {
-        validatorCut = (_amount * (1000000 - _share)) / 1000000;
-        stakeCut = _amount - validatorCut;
-    }
-
-    /***********************************|
-    |             Owner-only            |
-    |__________________________________*/
+    /****************************************|
+    | Owner-only Auction / State Functions   |
+    |_______________________________________*/
 
     /// @notice Defines the paused state of the Auction
     /// @dev Only owner
@@ -186,94 +205,19 @@ contract FastLaneAuctionRelay is FastLaneRelayEvents, Ownable, ReentrancyGuard {
         emit RelayPausedStateSet(_state);
     }
 
-    function newRound() external onlyOwner whenNotPaused {
-        uint64 currentBlockNumber = uint64(block.number);
-        
-        roundDataMap[currentRoundNumber].endBlock = currentBlockNumber;
-        currentRoundNumber++;
-
-        roundDataMap[currentRoundNumber] = Round(currentRoundNumber, fastLaneStakeShare, currentBlockNumber, 0, 0, false);
-    }
-
-    function processValidatorsBalances() external whenNotPaused senderIsOrigin returns (bool) {
-        // can be called by anyone
-        // process rounds sequentially
-        uint24 roundNumber = lastRoundProcessed + 1;
-
-        if (roundNumber >= currentRoundNumber) revert("ProcessingRoundNotOver");
-
-        if (roundDataMap[roundNumber].completedPayments) revert("ProcessingRoundFullyPaidOut");
-
-        isProcessingPayments = true;
-
-        uint24 stakeAllocation = roundDataMap[roundNumber].stakeAllocation;
-        uint256 removedValidatorsLength = removedValidators.length;
-        uint256 participatingValidatorsLength = participatingValidators.length;
-        address validator;
-        uint256 grossRevenue;
-        uint256 netValidatorRevenue;
-        uint256 netStakeRevenue;
-        uint256 netStakeRevenueCollected;
-        bool completedLoop = true;
-
-        uint256 n = uint256(roundDataMap[roundNumber].nextValidatorIndex);
-        
-        if (n < removedValidatorsLength) {
-            // check removed validators too - they may have been removed partway through a round
-            for (n; n < removedValidatorsLength; n++) {
-                if (gasleft() < 80_000) {
-                    completedLoop = false;
-                    break;
-                }
-                validator = removedValidators[n];
-                grossRevenue = validatorBalanceMap[currentRoundNumber][validator];
-                if (grossRevenue > 0) {
-                    (netValidatorRevenue, netStakeRevenue) = _calculateStakeShare(grossRevenue, stakeAllocation);
-                    validatorBalancePayableMap[validator] += netValidatorRevenue;
-                    netStakeRevenueCollected += netStakeRevenue;
-                }
-            }
-        }
-
-        if (n < removedValidatorsLength + participatingValidatorsLength && n >= removedValidatorsLength) {
-            for (n; n < removedValidatorsLength + participatingValidatorsLength; n++) {
-                if (gasleft() < 80_000) {
-                    completedLoop = false;
-                    break;
-                }
-                validator = participatingValidators[n - removedValidatorsLength];
-                grossRevenue = validatorBalanceMap[currentRoundNumber][validator];
-                if (grossRevenue > 0) {
-                    (netValidatorRevenue, netStakeRevenue) = _calculateStakeShare(grossRevenue, stakeAllocation);
-                    validatorBalancePayableMap[validator] += netValidatorRevenue;
-                    netStakeRevenueCollected += netStakeRevenue;
-                }
-            }
-        }
-
-        if (completedLoop) n += 1; // makes sure we didn't run out of gas on final validator in list
-        
-        roundDataMap[roundNumber].nextValidatorIndex = uint24(n);
-        stakeSharePayable += netStakeRevenueCollected;
-
-        if (n > removedValidatorsLength + participatingValidatorsLength) {
-            // TODO: check if n keeps the final ++ increment that pushes it out of range of for loop
-            roundDataMap[roundNumber].completedPayments = true;
-            lastRoundProcessed = roundNumber;
-            isProcessingPayments = false;
-            return true;
-        } else {
-            return false;
-        }
-    }
-
     function withdrawStakeShare(address recipient, uint256 amount) external onlyOwner {
         // TODO: Add limitations around recipient & amount (integrate DAO controls / voting results)
         if (amount > stakeSharePayable) {
-            revert(string(abi.encodePacked("ProcessingAmountExceedsBalance ", Strings.toString(amount), " ", Strings.toString(stakeSharePayable))));
+            revert(string(abi.encodePacked("ProcessingAmountExceedsPayable ", Strings.toString(amount), " ", Strings.toString(current.stakeSharePayable))));
+        }
+        if (amount > address(this).balance) {
+            revert(string(abi.encodePacked("ProcessingAmountExceedsBalance ", Strings.toString(amount), " ", Strings.toString(address(this).balance))));
         }
         stakeSharePayable -= amount;
-        payable(recipient).transfer(amount);
+        safeTransferETH(
+            recipient, 
+            amount
+        );
         emit ProcessingWithdrewStakeShare(recipient, amount);
     }
 
@@ -281,110 +225,125 @@ contract FastLaneAuctionRelay is FastLaneRelayEvents, Ownable, ReentrancyGuard {
     /// @dev Initially set to 50_000 (5%) 
     /// Can't change the stake revenue allocation mid round - all changes go into effect in next round
     /// @param _fastLaneStakeShare Protocol stake allocation on bids
-    function setFastLaneStakeShare(uint24 _fastLaneStakeShare)
-        public
-        onlyOwner
-    {
+    function setFastLaneStakeShare(uint24 _fastLaneStakeShare) external onlyOwner {
         if (_fastLaneStakeShare > 1_000_000) revert("RelayInequalityTooHigh");
-        fastLaneStakeShare = _fastLaneStakeShare;
-        emit RelayShareSet(_fastLaneStakeShare);
+        pending.stakeShareRatio = _fastLaneStakeShare;
+        pending.blockDeadline = uint64(block.number) + blockTimeLock;
+        current.pendingUpdate = true;
+        emit RelayShareProposed(_fastLaneStakeShare);
     }
     
-    function enableRelayValidatorAddress(address _validator) external onlyOwner {
-        if (!validatorsMap[_validator]) {
-            // check to see if this validator is being re-added
-            if (removedValidators.length > 0) {
-                bool existing = false;
-                uint256 validatorIndex;
-                address lastElement = removedValidators[removedValidators.length - 1];
-                
-                for (uint256 z=0; z < removedValidators.length; z++) {
-                    if (removedValidators[z] == _validator) {
-                        validatorIndex = z;
-                        existing = true;
-                        break;
-                    }
-                }
-                if (existing) {
-                    removedValidators[validatorIndex] = lastElement;
-                    delete removedValidators[removedValidators.length - 1];
-                }
-            }
-            participatingValidators.push(_validator);
-            validatorsMap[_validator] = true;
+    function enableValidator(address _validator, address _payee) external onlyOwner {
+        if (!validatorDataMap[_validator].active) {
+            validatorDataMap[_validator] = ValidatorData(true, uint16(activeValidators.length), _payee, uint64(block.number));
+            activeValidators.push(_validator);
             emit RelayValidatorEnabled(_validator);
         }
     }
 
-    function disableRelayValidatorAddress(address _validator) external onlyOwner {
-        if (validatorsMap[_validator]) {
-            bool existing = false;
-            uint256 validatorIndex;
-            address lastElement = participatingValidators[participatingValidators.length - 1];
-            for (uint256 z=0; z < participatingValidators.length; z++) {
-                if (participatingValidators[z] == _validator) {
-                    validatorIndex = z;
-                    existing = true;
-                    break;
-                }
+    function disableValidator(address _validator) external onlyOwner whenNotPaused {
+        if (validatorDataMap[_validator].active) {
+            uint256 validatorIndex = uint256(validatorDataMap[_validator].index);
+
+            if (activeValidators.length > 1 && validatorIndex != activeValidators.length - 1) {
+                // Replace removed validator's spot in array with 'last' validator, 
+                // then pop last element of array
+                // (array usage is not order-sensitive as long as index is tracked for moved validator)
+                address lastValidator = activeValidators[activeValidators.length - 1];
+                activeValidators[validatorIndex] = lastValidator;
+                validatorDataMap[lastValidator].index = uint16(validatorIndex);
             }
-            if (existing) {
-                participatingValidators[validatorIndex] = lastElement;
-                delete participatingValidators[participatingValidators.length - 1];
+
+            delete activeValidators[activeValidators.length - 1];
+
+            if (validatorBalanceMap[_validator] > 0) {
+                // pay removed validator any owed balance
+                payValidator(_validator);
             }
-            removedValidators.push(_validator);
-            validatorsMap[_validator] = false;
+
+            validatorDataMap[_validator].active = false;
+
             emit RelayValidatorDisabled(_validator);
         }
+    }
+
+    function updateValidatorPayee(address _validator, address _payee) external {
+        if (!isValidatorProxy(_validator)) revert("UnauthorizedRequest");
+        if (!validatorDataMap[_validator].active) revert("ValidatorInactive");
+        validatorDataMap[_validator].payee = _payee;
+        validatorDataMap[_validator].blockUpdated = uint64(block.number);
+
+        emit RelayValidatorPayeeUpdated(_validator, _payee);   
     }
 
     /***********************************|
     |          Validator Functions      |
     |__________________________________*/
 
-    function payValidator(address validator) public whenNotPaused senderIsOrigin returns (uint256) {
-        if (validatorBalancePayableMap[validator] == 0) revert("ProcessingNoBalancePayable");
-        if (isProcessingPayments) revert("ProcessingInProgress");
-        if (msg.sender != validator || msg.sender != owner()) revert("UnauthorizedPayor");
-        uint256 payableBalance = validatorBalancePayableMap[validator];
-        validatorBalancePayableMap[validator] = 0;
-        payable(validator).transfer(payableBalance);
-        emit ProcessingPaidValidator(validator, payableBalance);
-        return payableBalance;
-    }
-
-    function getValidatorBalance(address validator) public view returns (uint256, uint256) {
-        // returns balancePayable, balancePending
-        if (isProcessingPayments) revert("ProcessingInProgress");
-        uint256 balancePending; 
-        uint256 netValidatorRevenue;
-        for (uint24 _roundNumber = lastRoundProcessed + 1; _roundNumber <= currentRoundNumber; _roundNumber++) {
-            (netValidatorRevenue,) = _calculateStakeShare(validatorBalanceMap[_roundNumber][validator], roundDataMap[_roundNumber].stakeAllocation);
-            balancePending += netValidatorRevenue;
+    function payValidator(address _validator) public whenNotPaused nonReentrant returns (uint256) {
+        // pays the validator their outstanding balance excluding any unsettled funds from current round
+        // callable by either validator or PFL
+        if (!isValidatorProxy(_validator)) revert("UnauthorizedRequest");
+        
+        uint256 payableBalance = validatorBalanceMap[_validator];
+        if (payableBalance > 0) {
+            validatorBalanceMap[_validator] = 0;
+            safeTransferETH(
+                getValidatorPayee(_validator), 
+                payableBalance
+            );
+            emit ProcessingPaidValidator(_validator, payableBalance);
         }
-        return (validatorBalancePayableMap[validator], balancePending);
+        return payableBalance;
     }
 
     /***********************************|
     |        State View Functions       |
     |__________________________________*/
 
-    function getCurrentRound() public view returns (uint24 _currentRoundNumber) {
-        _currentRoundNumber = currentRoundNumber;
-    }
-
-    function getLastRoundProcessed() public view returns (uint24 _lastRoundProcessed) {
-        _lastRoundProcessed = lastRoundProcessed;
-    }
-
-    function getFastLaneStakeShare() public view returns (uint24 _fastLaneStakeShare) {
-        _fastLaneStakeShare = fastLaneStakeShare;
-    }
-
     function getPausedStatus() public view returns (bool _paused) {
-        _paused = paused;
-    } 
+        _paused = current.paused;
+    }
 
+    function getValidatorBalance(address _validator) public view returns (uint256 _validatorBalance) {
+        _validatorBalance = validatorBalanceMap[_validator];
+    }
+
+    function getValidatorPayee(address _validator) public view returns (address _payee) {
+        _payee = validatorDataMap[_validator].payee;
+    }
+
+    function getCurrentStakeRatio() public view returns (uint24 _fastLaneStakeShare) {
+        _fastLaneStakeShare = current.stakeShareRatio;
+    }
+
+    function getCurrentStakeBalance() public view returns (uint256 _fastLaneStakeBalance) {
+        _fastLaneStakeBalance = current.stakeSharePayable;
+    }
+
+    function getPendingStakeRatio() public view returns (uint24 _fastLaneStakeShare) {
+        if (current.pendingUpdate) {
+            _fastLaneStakeShare = pending.stakeShareRatio;
+        } else {
+            _fastLaneStakeShare = current.stakeShareRatio;
+        }
+    }
+
+    function getPendingDeadline() public view returns (uint64 _blockDeadline) {
+        if (current.pendingUpdate) {
+            _blockDeadline = pending.blockDeadline;
+        } else {
+            _blockDeadline = uint64(block.number);
+        }
+    }
+
+    function getActiveValidators() public view returns (address[] memory _activeValidators) {
+        _activeValidators = activeValidators;
+    }
+
+    function getValidatorStatus(address _validator) public view returns (bool _isActive) {
+        _isActive = validatorDataMap[_validator].active;
+    }
 
     /***********************************|
     |           Helper Functions        |
@@ -401,6 +360,44 @@ contract FastLaneAuctionRelay is FastLaneRelayEvents, Ownable, ReentrancyGuard {
         require(success, "ETH_TRANSFER_FAILED");
     }
 
+    function _calculateStakeShare(uint256 _amount, uint24 _share) internal pure returns (uint256 validatorCut, uint256 stakeCut) {
+        validatorCut = (_amount * (1000000 - _share)) / 1000000;
+        stakeCut = _amount - validatorCut;
+    }
+
+    function _stakeShareRatio() internal returns (uint24) {
+        if (current.pendingUpdate) {
+            if (current.stakeShareRatio != pending.stakeShareRatio) {
+                if (uint64(block.number) > pending.blockDeadline) {
+                    current.stakeShareRatio = pending.stakeShareRatio;
+                    current.pendingUpdate = false;
+                    emit RelayShareSet(_fastLaneStakeShare);
+                }
+            }
+        }
+        return current.stakeShareRatio;
+    }
+
+    function checkPayeeLock(address _validator) internal returns (bool _valid) {
+        _valid = uint64(block.number) > validatorDataMap[_validator].blockUpdated + blockTimeLock;
+    }
+
+    function isValidPayee(address _validator, address _payee) internal returns (bool _valid) {
+        _valid = checkPayeeLock(_validator) && _payee == validatorDataMap[_validator].payee;
+    }
+
+    function isValidatorProxy(address _validator) internal returns (bool _valid) {
+        return msg.sender == _validator || msg.sender == owner() || isValidPayee(_validator, msg.sender);
+    }
+
+    function getValidatorPayee(address _validator) internal returns (address _recipient) {
+        if (checkPayeeLock(_validator)) {
+            _recipient = validatorDataMap[_validator].payee;
+        } else {
+            _recipient = _validator;
+        }
+    }
+
     fallback() external payable {}
     receive() external payable {}
 
@@ -409,17 +406,19 @@ contract FastLaneAuctionRelay is FastLaneRelayEvents, Ownable, ReentrancyGuard {
     |__________________________________*/
 
     modifier whenNotPaused() {
-        if (paused) revert("RelayPermissionPaused");
+        if (current.paused) revert("RelayPermissionPaused");
         _;
     }
 
     modifier senderIsOrigin() {
+        // NOTE: I know this is frowned upon 
+        // goal of func is to block smart contracts from submitting bids
         if (msg.sender != tx.origin) revert("AuctionCallerMustBeSender");
         _;
     }
 
     modifier onlyParticipatingValidators() {
-        if (!validatorsMap[block.coinbase]) revert("RelayPermissionNotFastLaneValidator");
+        if (!validatorDataMap[block.coinbase].active) revert("RelayPermissionNotFastLaneValidator");
         _;
     }
 }

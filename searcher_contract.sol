@@ -14,9 +14,6 @@ contract FastLaneSearcherWrapper is ReentrancyGuard {
     error SearcherCallUnsuccessful(bytes retData);
     error SearcherInsufficientFunds(uint256 amountToSend, uint256 currentBalance);
 
-    address public anAddress; // just a var to change for the placeholder MEV function
-    uint256 public anAmount; // another var to change for the placeholder MEV function
-
     mapping(address => bool) internal approvedEOAs;
 
     constructor() {
@@ -42,8 +39,9 @@ contract FastLaneSearcherWrapper is ReentrancyGuard {
         // balance check then Repay PFL at the end
         require(
             (address(this).balance >= _bidAmount), 
-            string(abi.encodePacked("SearcherInsufficientFunds  ", Strings.toString(_bidAmount), Strings.toString(address(this).balance)))
+            string(abi.encodePacked("SearcherInsufficientFunds  ", Strings.toString(_bidAmount), " ", Strings.toString(address(this).balance)))
         );
+        
         safeTransferETH(PFLAuction, _bidAmount);
         
         // return the return data (optional)
@@ -65,17 +63,17 @@ contract FastLaneSearcherWrapper is ReentrancyGuard {
     }
 
     function setPFLAuctionAddress(address _pflAuction) public {
-        if (msg.sender != owner) revert("OriginEOANotOwner");
+        require(msg.sender == owner, "OriginEOANotOwner");
         PFLAuction = payable(_pflAuction);
     }
 
     function approveFastLaneEOA(address eoaAddress) public {
-        if (msg.sender != owner) revert("OriginEOANotOwner");
+        require(msg.sender == owner, "OriginEOANotOwner");
         approvedEOAs[eoaAddress] = true;
     }
 
     function checkFastLaneEOA(address eoaAddress) view internal {
-        if (!approvedEOAs[eoaAddress]) revert("SenderEOANotApproved");
+        require(approvedEOAs[eoaAddress], "SenderEOANotApproved");
     }
 
     function isTrustedForwarder(address forwarder) public view returns (bool) {
@@ -92,8 +90,12 @@ contract FastLaneSearcherWrapper is ReentrancyGuard {
 }
 
 contract SearcherContractExample is FastLaneSearcherWrapper {
-    // your own MEV function here 
+    // your own MEV contract / functions here 
     // NOTE: its security checks must be compatible w/ calls from the FastLane Auction Contract
+
+    address public anAddress; // just a var to change for the placeholder MEV function
+    uint256 public anAmount; // another var to change for the placeholder MEV function
+
     function doStuff(address _anAddress, uint256 _anAmount) public payable returns (bool) {
         // NOTE: this function can't be external as the FastLaneCall func will call it internally
         if (!isTrustedForwarder(msg.sender) && msg.sender != address(this)) { // example of safety check modification - only check msg.sender when not forwarded
@@ -101,8 +103,8 @@ contract SearcherContractExample is FastLaneSearcherWrapper {
             require(approvedEOAs[msg.sender], "SenderEOANotApproved");
         }
         
-
         // Do MEV stuff here
+        // placeholder
         anAddress = _anAddress;
         anAmount = _anAmount;
         bool isSuccessful = true;
