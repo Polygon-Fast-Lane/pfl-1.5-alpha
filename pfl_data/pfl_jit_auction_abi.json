@@ -1,11 +1,6 @@
 [
 	{
 		"inputs": [],
-		"stateMutability": "nonpayable",
-		"type": "constructor"
-	},
-	{
-		"inputs": [],
 		"name": "AuctionBidReceivedLate",
 		"type": "error"
 	},
@@ -64,22 +59,7 @@
 	},
 	{
 		"inputs": [],
-		"name": "ProcessingInProgress",
-		"type": "error"
-	},
-	{
-		"inputs": [],
 		"name": "ProcessingNoBalancePayable",
-		"type": "error"
-	},
-	{
-		"inputs": [],
-		"name": "ProcessingRoundFullyPaidOut",
-		"type": "error"
-	},
-	{
-		"inputs": [],
-		"name": "ProcessingRoundNotOver",
 		"type": "error"
 	},
 	{
@@ -246,12 +226,12 @@
 		"inputs": [
 			{
 				"indexed": false,
-				"internalType": "uint24",
-				"name": "newRoundNumber",
-				"type": "uint24"
+				"internalType": "bool",
+				"name": "state",
+				"type": "bool"
 			}
 		],
-		"name": "RelayNewRound",
+		"name": "RelayPausedStateSet",
 		"type": "event"
 	},
 	{
@@ -259,12 +239,12 @@
 		"inputs": [
 			{
 				"indexed": false,
-				"internalType": "bool",
-				"name": "state",
-				"type": "bool"
+				"internalType": "uint24",
+				"name": "amount",
+				"type": "uint24"
 			}
 		],
-		"name": "RelayPausedStateSet",
+		"name": "RelayShareProposed",
 		"type": "event"
 	},
 	{
@@ -307,158 +287,60 @@
 		"type": "event"
 	},
 	{
+		"anonymous": false,
 		"inputs": [
 			{
+				"indexed": false,
 				"internalType": "address",
 				"name": "_validator",
 				"type": "address"
-			}
-		],
-		"name": "disableRelayValidatorAddress",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "_validator",
-				"type": "address"
-			}
-		],
-		"name": "enableRelayValidatorAddress",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "fastLaneStakeShare",
-		"outputs": [
-			{
-				"internalType": "uint24",
-				"name": "",
-				"type": "uint24"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "getCurrentRound",
-		"outputs": [
-			{
-				"internalType": "uint24",
-				"name": "_currentRoundNumber",
-				"type": "uint24"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "getFastLaneStakeShare",
-		"outputs": [
-			{
-				"internalType": "uint24",
-				"name": "_fastLaneStakeShare",
-				"type": "uint24"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "getLastRoundProcessed",
-		"outputs": [
-			{
-				"internalType": "uint24",
-				"name": "_lastRoundProcessed",
-				"type": "uint24"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "getPausedStatus",
-		"outputs": [
-			{
-				"internalType": "bool",
-				"name": "_paused",
-				"type": "bool"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "validator",
-				"type": "address"
-			}
-		],
-		"name": "getValidatorBalance",
-		"outputs": [
-			{
-				"internalType": "uint256",
-				"name": "",
-				"type": "uint256"
 			},
 			{
-				"internalType": "uint256",
-				"name": "",
-				"type": "uint256"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "newRound",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "owner",
-		"outputs": [
-			{
+				"indexed": false,
 				"internalType": "address",
-				"name": "",
+				"name": "_payee",
 				"type": "address"
 			}
 		],
-		"stateMutability": "view",
-		"type": "function"
+		"name": "RelayValidatorPayeeUpdated",
+		"type": "event"
 	},
 	{
-		"inputs": [],
-		"name": "paused",
-		"outputs": [
+		"inputs": [
 			{
-				"internalType": "bool",
-				"name": "",
-				"type": "bool"
+				"internalType": "address",
+				"name": "_validator",
+				"type": "address"
 			}
 		],
-		"stateMutability": "view",
+		"name": "disableValidator",
+		"outputs": [],
+		"stateMutability": "nonpayable",
 		"type": "function"
 	},
 	{
 		"inputs": [
 			{
 				"internalType": "address",
-				"name": "validator",
+				"name": "_validator",
+				"type": "address"
+			},
+			{
+				"internalType": "address",
+				"name": "_payee",
+				"type": "address"
+			}
+		],
+		"name": "enableValidator",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "_validator",
 				"type": "address"
 			}
 		],
@@ -468,19 +350,6 @@
 				"internalType": "uint256",
 				"name": "",
 				"type": "uint256"
-			}
-		],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "processValidatorsBalances",
-		"outputs": [
-			{
-				"internalType": "bool",
-				"name": "",
-				"type": "bool"
 			}
 		],
 		"stateMutability": "nonpayable",
@@ -567,6 +436,28 @@
 		"type": "function"
 	},
 	{
+		"stateMutability": "payable",
+		"type": "receive"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "_validator",
+				"type": "address"
+			},
+			{
+				"internalType": "address",
+				"name": "_payee",
+				"type": "address"
+			}
+		],
+		"name": "updateValidatorPayee",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
 		"inputs": [
 			{
 				"internalType": "address",
@@ -582,6 +473,182 @@
 		"name": "withdrawStakeShare",
 		"outputs": [],
 		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"stateMutability": "payable",
+		"type": "fallback"
+	},
+	{
+		"inputs": [],
+		"stateMutability": "nonpayable",
+		"type": "constructor"
+	},
+	{
+		"inputs": [],
+		"name": "getActiveValidators",
+		"outputs": [
+			{
+				"internalType": "address[]",
+				"name": "_activeValidators",
+				"type": "address[]"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "getCurrentStakeBalance",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "_fastLaneStakeBalance",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "getCurrentStakeRatio",
+		"outputs": [
+			{
+				"internalType": "uint24",
+				"name": "_fastLaneStakeShare",
+				"type": "uint24"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "getPausedStatus",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "_paused",
+				"type": "bool"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "getPendingDeadline",
+		"outputs": [
+			{
+				"internalType": "uint64",
+				"name": "_blockDeadline",
+				"type": "uint64"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "getPendingStakeRatio",
+		"outputs": [
+			{
+				"internalType": "uint24",
+				"name": "_fastLaneStakeShare",
+				"type": "uint24"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "_validator",
+				"type": "address"
+			}
+		],
+		"name": "getValidatorBalance",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "_validatorBalance",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "_validator",
+				"type": "address"
+			}
+		],
+		"name": "getValidatorPayee",
+		"outputs": [
+			{
+				"internalType": "address",
+				"name": "_payee",
+				"type": "address"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "_validator",
+				"type": "address"
+			}
+		],
+		"name": "getValidatorRecipient",
+		"outputs": [
+			{
+				"internalType": "address",
+				"name": "_recipient",
+				"type": "address"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "_validator",
+				"type": "address"
+			}
+		],
+		"name": "getValidatorStatus",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "_isActive",
+				"type": "bool"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "owner",
+		"outputs": [
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"stateMutability": "view",
 		"type": "function"
 	}
 ]
