@@ -17,6 +17,7 @@ contract FastLaneSearcherRelay is ReentrancyGuard, Ownable {
     address payable private SearcherContract;
     address payable private FastLaneAuction;
     address payable private backupPayee;
+    bool private forwardMsgValue; 
 
     error WrongPermissions();
     error OriginEOANotOwner();
@@ -27,7 +28,8 @@ contract FastLaneSearcherRelay is ReentrancyGuard, Ownable {
     mapping(address => uint256) internal wmaticAllowances;
 
     constructor() {
-        backupPayee = owner();
+        forwardMsgValue = false;
+        backupPayee = payable(owner());
         _updateAllowance(owner());
     }
 
@@ -41,64 +43,91 @@ contract FastLaneSearcherRelay is ReentrancyGuard, Ownable {
         // make sure it's your own EOA that's calling your contract
         require(checkFastLaneEOA(_sender), "SenderEOANotApproved");
 
-        // execute the searcher's intended function
-        // NOTE: if you were planning to pay with the msg.value, you can remove {value: msg.value}
-        // from the call below (assuming your searcher contract doesn't need it)
-        (bool success, bytes memory returnedData) = SearcherContract.call{value: msg.value}(_searcherCallData);
+        // if you were planning to pay with the msg.value, you can remove {value: msg.value} from the 
+        // call below (assuming your searcher contract doesn't need it)
+        // the below layout is a catch-all that is optimized for flexibility over gas efficiency
+        (bool prepaid, uint256 _msgValue) = prepaidCheck(_bidAmount);
         
-        // if the call didn't turn out the way you wanted, revert either here or inside your MEV function itself
-        require(success, "SearcherCallUnsuccessful");
+        // execute the searcher's intended function
+        (bool success, bytes memory returnedData) = SearcherContract.call{value: _msgValue}(_searcherCallData);
+        
+        // if the call didn't turn out the way you wanted, add a revert either here, inside your MEV function 
+        // or at the PFL Relay balance check. For example:
+        // require(success, "SearcherCallUnsuccessful");
 
         // balance check then Repay PFL at the end
-        handlePayback(_bidAmount, _sender);
-        
+        if (success) {
+            prepaid ? safeTransferETH(FastLaneAuction, _bidAmount) : handlePayback(_bidAmount, _sender);
+        }
+
         // return the return data (optional)
         return (success, returnedData);
     }
 
-    // Other functions / modifiers that are necessary for FastLane integration:
-    // NOTE: you can use your own versions of these, or find alternative ways
-    // to implement similar safety checks. Please be careful!
-
     function handlePayback(uint256 _bidAmount, address _sender) internal {
-        // NOTE: this is a generalized approach to serve as an example. In practice,
-        // we recommend making this process specific to your own smart contract
+        // NOTE: this is a generalized approach to serve as an example. 
+        // We recommend making this process specific to your own smart contract
         // to avoid the significant amount of unnecessary gas usage here.
 
         if (address(this).balance >= _bidAmount) {
             safeTransferETH(FastLaneAuction, _bidAmount);
 
-        } else if (checkBalance(address(this), _bidAmount)) {
+        } else if (
+                checkWrappedBalance(address(this), _bidAmount)
+        ) {
             IWMATIC(wmatic).withdraw(_bidAmount);
             safeTransferETH(FastLaneAuction, _bidAmount);
         
         } else if (
-                checkAllowance(_sender, _bidAmount) &&
-                checkBalance(_sender, _bidAmount)
+                checkWrappedAllowance(_sender, _bidAmount) &&
+                checkWrappedBalance(_sender, _bidAmount)
         ) {
-            IWMATIC(wmatic).transferFrom(_sender, address(this), _bidAmount);
-            IWMATIC(wmatic).withdraw(_bidAmount);
-            safeTransferETH(FastLaneAuction, _bidAmount);
+            processWmaticPayment(_sender, _bidAmount);
 
         } else if (
-                checkAllowance(SearcherContract, _bidAmount) &&
-                checkBalance(SearcherContract, _bidAmount)
+                checkWrappedAllowance(SearcherContract, _bidAmount) &&
+                checkWrappedBalance(SearcherContract, _bidAmount)
         ) {
-            IWMATIC(wmatic).transferFrom(SearcherContract, address(this), _bidAmount);
-            IWMATIC(wmatic).withdraw(_bidAmount);
-            safeTransferETH(FastLaneAuction, _bidAmount);
+            processWmaticPayment(SearcherContract, _bidAmount);
 
         } else if (
-                checkAllowance(backupPayee, _bidAmount) &&
-                checkBalance(backupPayee, _bidAmount)
+                checkWrappedAllowance(backupPayee, _bidAmount) &&
+                checkWrappedBalance(backupPayee, _bidAmount)
         ) {
-            IWMATIC(wmatic).transferFrom(backupPayee, address(this), _bidAmount);
-            IWMATIC(wmatic).withdraw(_bidAmount);
-            safeTransferETH(FastLaneAuction, _bidAmount);
+            processWmaticPayment(backupPayee, _bidAmount);
 
         } else {
             revert SearcherInsufficientFunds(_bidAmount, address(this).balance);
         }
+    }
+
+    // Below are functions / modifiers that are necessary for FastLane integration:
+    // NOTE: you can use your own versions of these, or find alternative ways
+    // to implement similar safety checks. Please be careful!
+    function setPFLAuctionAddress(address _fastLaneAuction) external onlyOwner {
+        FastLaneAuction = payable(_fastLaneAuction);
+    }
+
+    function setSearcherAddress(address _searcherAddress) external onlyOwner {
+        SearcherContract = payable(_searcherAddress);
+        _updateAllowance(_searcherAddress);
+    }
+
+    function approveFastLaneEOA(address eoaAddress) external onlyOwner {
+        approvedEOAs[eoaAddress] = true;
+        _updateAllowance(eoaAddress);
+    }
+
+    function removeFastLaneEOA(address eoaAddress) external onlyOwner {
+        approvedEOAs[eoaAddress] = false;
+    }
+
+    function checkFastLaneEOA(address eoaAddress) internal view returns (bool) {
+        return approvedEOAs[eoaAddress];
+    }
+
+    function isTrustedForwarder(address forwarder) internal view returns (bool) {
+        return forwarder == FastLaneAuction;
     }
 
     function safeTransferETH(address to, uint256 amount) internal {
@@ -112,27 +141,23 @@ contract FastLaneSearcherRelay is ReentrancyGuard, Ownable {
         require(success, "ETH_TRANSFER_FAILED");
     }
 
-    function setPFLAuctionAddress(address _fastLaneAuction) external onlyOwner {
-        FastLaneAuction = payable(_fastLaneAuction);
-    }
+    fallback() external payable {}
+    receive() external payable {}
 
-    function setSearcherAddress(address _searcherAddress) external onlyOwner {
-        SearcherContract = payable(_searcherAddress);
-        _updateAllowance(eoaAddress);
-    }
+    modifier onlyRelayer {
+          if (!isTrustedForwarder(msg.sender)) revert("InvalidPermissions");
+          _;
+     }
 
-    function approveFastLaneEOA(address eoaAddress) external onlyOwner {
-        approvedEOAs[eoaAddress] = true;
-        _updateAllowance(eoaAddress);
-    }
-
-    function setBackupPayee(address payeeAddress) external onlyOwner {
+    // Below are functions / modifiers that add broad usage to this relay example.
+    // Ideally the searcher will significantly customize or replace them before deployment.
+    function setBackupPayee(address payable payeeAddress) external onlyOwner {
         backupPayee = payeeAddress;
         _updateAllowance(payeeAddress);
     }
 
-    function removeFastLaneEOA(address eoaAddress) external onlyOwner {
-        approvedEOAs[eoaAddress] = false;
+    function setForwardMsgValue(bool _state) external onlyOwner {
+        forwardMsgValue = _state;
     }
 
     function updateAllowance(address _address) external {
@@ -143,19 +168,27 @@ contract FastLaneSearcherRelay is ReentrancyGuard, Ownable {
         wmaticAllowances[_address] = IWMATIC(wmatic).allowance(_address, address(this));
     }
 
-    function checkFastLaneEOA(address eoaAddress) view internal returns (bool) {
-        return approvedEOAs[eoaAddress];
+    function processWmaticPayment(address _source, uint256 _amount) private {
+        IWMATIC(wmatic).transferFrom(_source, address(this), _amount);
+        IWMATIC(wmatic).withdraw(_amount);
+        safeTransferETH(FastLaneAuction, _amount);
     }
 
-    function isTrustedForwarder(address forwarder) public view returns (bool) {
-        return forwarder == FastLaneAuction;
+    function prepaidCheck(uint256 _bidAmount) internal view returns (bool, uint256) {
+        if (msg.value != 0) {
+            if (forwardMsgValue) {
+                return (false, msg.value);
+            }
+            return (msg.value > _bidAmount, 0);
+        }
+        return (false, 0);
     }
 
-    function checkAllowance(address _address, uint256 _amount) internal view returns(bool) {
+    function checkWrappedAllowance(address _address, uint256 _amount) internal view returns(bool) {
         return wmaticAllowances[_address] >= _amount;
     }
 
-    function checkBalance(address _address, uint256 _amount) internal view returns(bool) {
+    function checkWrappedBalance(address _address, uint256 _amount) internal view returns(bool) {
         return IWMATIC(wmatic).balanceOf(_address) >= _amount;
     }
 
@@ -177,14 +210,6 @@ contract FastLaneSearcherRelay is ReentrancyGuard, Ownable {
         uint256 tokenBalance = IERC20(_token).balanceOf(address(this));
         IERC20(_token).transfer(owner(), tokenBalance);
     }
-
-    fallback() external payable {}
-    receive() external payable {}
-
-    modifier onlyRelayer {
-          if (!isTrustedForwarder(msg.sender)) revert("InvalidPermissions");
-          _;
-     }
 
     modifier approvedExRelay{
           if (!checkFastLaneEOA(msg.sender) && owner() != msg.sender) revert("InvalidPermissions");
